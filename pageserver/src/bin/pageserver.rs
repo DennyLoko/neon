@@ -260,7 +260,7 @@ fn start_pageserver(conf: &'static PageServerConf) -> anyhow::Result<()> {
     };
     info!("Using auth: {:#?}", conf.auth_type);
 
-    match var("ZENITH_AUTH_TOKEN") {
+    match var("NEON_AUTH_TOKEN") {
         Ok(v) => {
             info!("Loaded JWT token for authentication with Safekeeper");
             pageserver::config::SAFEKEEPER_AUTH_TOKEN
@@ -272,7 +272,7 @@ fn start_pageserver(conf: &'static PageServerConf) -> anyhow::Result<()> {
         }
         Err(e) => {
             return Err(e).with_context(|| {
-                "Failed to either load to detect non-present ZENITH_AUTH_TOKEN environment variable"
+                "Failed to either load to detect non-present NEON_AUTH_TOKEN environment variable"
             })
         }
     };
