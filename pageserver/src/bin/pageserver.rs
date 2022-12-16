@@ -21,10 +21,7 @@ use pageserver::{
 };
 use remote_storage::GenericRemoteStorage;
 use utils::{
-    auth::JwtAuth,
-    logging,
-    postgres_backend::AuthType,
-    project_git_version,
+    logging, project_git_version,
     sentry_init::{init_sentry, release_name},
     signals::{self, Signal},
     tcp_listener,
@@ -249,16 +246,7 @@ fn start_pageserver(conf: &'static PageServerConf) -> anyhow::Result<()> {
 
     WALRECEIVER_RUNTIME.block_on(pageserver::walreceiver::init_broker_client(conf))?;
 
-    // initialize authentication for incoming connections
-    let auth = match &conf.auth_type {
-        AuthType::Trust => None,
-        AuthType::NeonJWT => {
-            // unwrap is ok because check is performed when creating config, so path is set and file exists
-            let key_path = conf.auth_validation_public_key_path.as_ref().unwrap();
-            Some(JwtAuth::from_key_path(key_path)?.into())
-        }
-    };
-    info!("Using auth: {:#?}", conf.auth_type);
+    info!("Using auth: {:#?}", conf.auth.is_some());
 
     match var("ZENITH_AUTH_TOKEN") {
         Ok(v) => {
@@ -305,7 +293,7 @@ fn start_pageserver(conf: &'static PageServerConf) -> anyhow::Result<()> {
     {
         let _rt_guard = MGMT_REQUEST_RUNTIME.enter();
 
-        let router = http::make_router(conf, auth.clone(), remote_storage)?;
+        let router = http::make_router(conf, remote_storage)?;
         let service =
             utils::http::RouterService::new(router.build().map_err(|err| anyhow!(err))?).unwrap();
         let server = hyper::Server::from_tcp(http_listener)?
@@ -335,9 +323,7 @@ fn start_pageserver(conf: &'static PageServerConf) -> anyhow::Result<()> {
         None,
         "libpq endpoint listener",
         true,
-        async move {
-            page_service::libpq_listener_main(conf, auth, pageserver_listener, conf.auth_type).await
-        },
+        async move { page_service::libpq_listener_main(conf, pageserver_listener).await },
     );
 
     set_build_info_metric(GIT_VERSION);

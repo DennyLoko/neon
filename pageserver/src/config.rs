@@ -4,7 +4,9 @@
 //! file, or on the command line.
 //! See also `settings.md` for better description on every parameter.
 
-use anyhow::{anyhow, bail, ensure, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
+#[allow(unused_imports)]
+use derivative::Derivative;
 use remote_storage::{RemotePath, RemoteStorageConfig};
 use std::env;
 use storage_broker::Uri;
@@ -20,6 +22,7 @@ use std::time::Duration;
 use toml_edit;
 use toml_edit::{Document, Item};
 
+use utils::auth::JwtAuth;
 use utils::{
     id::{NodeId, TenantId, TimelineId},
     logging::LogFormat,
@@ -96,7 +99,13 @@ pub mod defaults {
     );
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+// Comparing `PageServerConf`s with each other is not useful in general: there may
+// be some processing during loading, e.g. creation of the `auth` field. However,
+// we still want to compare remaining fields in tests, so we derive `PartialEq`,
+// but only in the `test` configuration. A special `derivative` crate is used to ignore
+// uncomparable fields.
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Derivative), derivative(PartialEq))]
 pub struct PageServerConf {
     // Identifier of that particular pageserver so e g safekeepers
     // can safely distinguish different pageservers
@@ -127,9 +136,8 @@ pub struct PageServerConf {
 
     pub pg_distrib_dir: PathBuf,
 
-    pub auth_type: AuthType,
-
-    pub auth_validation_public_key_path: Option<PathBuf>,
+    #[cfg_attr(test, derivative(PartialEq = "ignore"))]
+    pub auth: Option<Arc<JwtAuth>>,
     pub remote_storage_config: Option<RemoteStorageConfig>,
 
     pub profiling: ProfilingConfig,
@@ -206,10 +214,8 @@ struct PageServerConfigBuilder {
 
     pg_distrib_dir: BuilderValue<PathBuf>,
 
-    auth_type: BuilderValue<AuthType>,
-
     //
-    auth_validation_public_key_path: BuilderValue<Option<PathBuf>>,
+    auth: BuilderValue<Option<Arc<JwtAuth>>>,
     remote_storage_config: BuilderValue<Option<RemoteStorageConfig>>,
 
     id: BuilderValue<NodeId>,
@@ -241,8 +247,7 @@ impl Default for PageServerConfigBuilder {
             pg_distrib_dir: Set(env::current_dir()
                 .expect("cannot access current directory")
                 .join("pg_install")),
-            auth_type: Set(AuthType::Trust),
-            auth_validation_public_key_path: Set(None),
+            auth: Set(None),
             remote_storage_config: Set(None),
             id: NotSet,
             profiling: Set(ProfilingConfig::Disabled),
@@ -297,15 +302,8 @@ impl PageServerConfigBuilder {
         self.pg_distrib_dir = BuilderValue::Set(pg_distrib_dir)
     }
 
-    pub fn auth_type(&mut self, auth_type: AuthType) {
-        self.auth_type = BuilderValue::Set(auth_type)
-    }
-
-    pub fn auth_validation_public_key_path(
-        &mut self,
-        auth_validation_public_key_path: Option<PathBuf>,
-    ) {
-        self.auth_validation_public_key_path = BuilderValue::Set(auth_validation_public_key_path)
+    pub fn auth(&mut self, auth: Option<Arc<JwtAuth>>) {
+        self.auth = BuilderValue::Set(auth)
     }
 
     pub fn remote_storage_config(&mut self, remote_storage_config: Option<RemoteStorageConfig>) {
@@ -361,10 +359,7 @@ impl PageServerConfigBuilder {
             pg_distrib_dir: self
                 .pg_distrib_dir
                 .ok_or(anyhow!("missing pg_distrib_dir"))?,
-            auth_type: self.auth_type.ok_or(anyhow!("missing auth_type"))?,
-            auth_validation_public_key_path: self
-                .auth_validation_public_key_path
-                .ok_or(anyhow!("missing auth_validation_public_key_path"))?,
+            auth: self.auth.ok_or(anyhow!("missing auth information"))?,
             remote_storage_config: self
                 .remote_storage_config
                 .ok_or(anyhow!("missing remote_storage_config"))?,
@@ -518,6 +513,11 @@ impl PageServerConf {
 
         let mut t_conf = TenantConfOpt::default();
 
+        // For backward compatibility, see https://github.com/neondatabase/neon/pull/3139
+        // TODO: remove after a while
+        let mut auth_type: Option<AuthType> = None;
+        let mut auth_validation_public_key_path: Option<PathBuf> = None;
+
         for (key, item) in toml.iter() {
             match key {
                 "listen_pg_addr" => builder.listen_pg_addr(parse_toml_string(key, item)?),
@@ -532,10 +532,8 @@ impl PageServerConf {
                 "pg_distrib_dir" => {
                     builder.pg_distrib_dir(PathBuf::from(parse_toml_string(key, item)?))
                 }
-                "auth_validation_public_key_path" => builder.auth_validation_public_key_path(Some(
-                    PathBuf::from(parse_toml_string(key, item)?),
-                )),
-                "auth_type" => builder.auth_type(parse_toml_from_str(key, item)?),
+                "auth_type" => auth_type = Some(parse_toml_from_str(key, item)?),
+                "auth_validation_public_key_path" => auth_validation_public_key_path = Some(PathBuf::from(parse_toml_string(key, item)?)),
                 "remote_storage" => {
                     builder.remote_storage_config(RemoteStorageConfig::from_toml(item)?)
                 }
@@ -559,20 +557,26 @@ impl PageServerConf {
             }
         }
 
-        let mut conf = builder.build().context("invalid config")?;
-
-        if conf.auth_type == AuthType::NeonJWT {
-            let auth_validation_public_key_path = conf
-                .auth_validation_public_key_path
-                .get_or_insert_with(|| workdir.join("auth_public_key.pem"));
-            ensure!(
-                auth_validation_public_key_path.exists(),
-                format!(
-                    "Can't find auth_validation_public_key at '{}'",
-                    auth_validation_public_key_path.display()
-                )
-            );
+        // For backward compatibility only
+        match (auth_type, auth_validation_public_key_path) {
+            (None, None) => {}
+            (Some(AuthType::Trust), None) => {}
+            (Some(AuthType::Trust), Some(_)) => {
+                // Old behavior: ignore the public key file, it may even be missing.
+            }
+            (None, Some(path)) | (Some(AuthType::NeonJWT), Some(path)) => {
+                builder.auth(Some(Arc::new(
+                    JwtAuth::from_key_path(&workdir.join(path)).context(
+                        "unable to load public key from auth_validation_public_key_path",
+                    )?,
+                )))
+            }
+            (Some(AuthType::NeonJWT), None) => {
+                bail!("invalid config: auth_type = NeonJWT, but there is no auth_validation_public_key_path")
+            }
         }
+
+        let mut conf = builder.build().context("invalid config")?;
 
         conf.default_tenant_conf = t_conf.merge(TenantConf::default());
 
@@ -667,8 +671,7 @@ impl PageServerConf {
             superuser: "cloud_admin".to_string(),
             workdir: repo_dir,
             pg_distrib_dir,
-            auth_type: AuthType::Trust,
-            auth_validation_public_key_path: None,
+            auth: None,
             remote_storage_config: None,
             profiling: ProfilingConfig::Disabled,
             default_tenant_conf: TenantConf::dummy_conf(),
@@ -838,8 +841,7 @@ log_format = 'json'
                 max_file_descriptors: defaults::DEFAULT_MAX_FILE_DESCRIPTORS,
                 workdir,
                 pg_distrib_dir,
-                auth_type: AuthType::Trust,
-                auth_validation_public_key_path: None,
+                auth: None,
                 remote_storage_config: None,
                 profiling: ProfilingConfig::Disabled,
                 default_tenant_conf: TenantConf::default(),
@@ -884,8 +886,7 @@ log_format = 'json'
                 max_file_descriptors: 333,
                 workdir,
                 pg_distrib_dir,
-                auth_type: AuthType::Trust,
-                auth_validation_public_key_path: None,
+                auth: None,
                 remote_storage_config: None,
                 profiling: ProfilingConfig::Disabled,
                 default_tenant_conf: TenantConf::default(),
