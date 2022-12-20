@@ -24,7 +24,8 @@ UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Linux)
 	# Seccomp BPF is only available for Linux
 	PG_CONFIGURE_OPTS += --with-libseccomp
-	WALREDO_EXTRA_CFLAGS = -DHAVE_SHMEMPIPE -I$(ROOT_PROJECT_DIR)/libs/shmempipe -L$(ROOT_PROJECT_DIR)/target/$(BUILD_TYPE) -lshmempipe
+	WALREDO_EXTRA_CFLAGS = -DHAVE_SHMEMPIPE -I$(ROOT_PROJECT_DIR)/libs/shmempipe/src
+	WALREDO_EXTRA_LDFLAGS = -L$(ROOT_PROJECT_DIR)/target/$(BUILD_TYPE) -lshmempipe
 else ifeq ($(UNAME_S),Darwin)
 	# macOS with brew-installed openssl requires explicit paths
 	# It can be configured with OPENSSL_PREFIX variable
@@ -34,6 +35,7 @@ else ifeq ($(UNAME_S),Darwin)
 	# brew formulae are keg-only and not symlinked into HOMEBREW_PREFIX, force their usage
 	EXTRA_PATH_OVERRIDES += $(shell brew --prefix bison)/bin/:$(shell brew --prefix flex)/bin/:
 	WALREDO_EXTRA_CFLAGS =
+	WALREDO_EXTRA_LDFLAGS =
 endif
 
 # Use -C option so that when PostgreSQL "make install" installs the
@@ -153,10 +155,11 @@ postgres-v15-clean:
 	$(MAKE) -C $(POSTGRES_INSTALL_DIR)/build/v15/contrib/pageinspect clean
 	$(MAKE) -C $(POSTGRES_INSTALL_DIR)/build/v15/src/interfaces/libpq clean
 
-$(ROOT_PROJECT_DIR)/target/$(BUILD_TYPE)/libshmempipe.a:
+.PHONY: shmempipe
+shmempipe:
 	$(CARGO_CMD_PREFIX) cargo build -p shmempipe $(CARGO_BUILD_FLAGS)
 
-neon-pg-ext-v14: postgres-v14 $(ROOT_PROJECT_DIR)/target/$(BUILD_TYPE)/libshmempipe.a
+neon-pg-ext-v14: postgres-v14 shmempipe
 	+@echo "Compiling neon v14"
 	mkdir -p $(POSTGRES_INSTALL_DIR)/build/neon-v14
 	(cd $(POSTGRES_INSTALL_DIR)/build/neon-v14 && \
@@ -165,7 +168,7 @@ neon-pg-ext-v14: postgres-v14 $(ROOT_PROJECT_DIR)/target/$(BUILD_TYPE)/libshmemp
 	+@echo "Compiling neon_walredo v14"
 	mkdir -p $(POSTGRES_INSTALL_DIR)/build/neon-walredo-v14
 	(cd $(POSTGRES_INSTALL_DIR)/build/neon-walredo-v14 && \
-	$(MAKE) PG_CONFIG=$(POSTGRES_INSTALL_DIR)/v14/bin/pg_config CFLAGS='$(PG_CFLAGS) $(COPT) $(WALREDO_EXTRA_CFLAGS)' \
+	$(MAKE) PG_CONFIG=$(POSTGRES_INSTALL_DIR)/v14/bin/pg_config CFLAGS='$(PG_CFLAGS) $(COPT) $(WALREDO_EXTRA_CFLAGS)' LDFLAGS='$(LD_FLAGS) $(WALREDO_EXTRA_LDFLAGS)' \
 		-f $(ROOT_PROJECT_DIR)/pgxn/neon_walredo/Makefile install)
 	+@echo "Compiling neon_test_utils" v14
 	mkdir -p $(POSTGRES_INSTALL_DIR)/build/neon-test-utils-v14
@@ -173,7 +176,7 @@ neon-pg-ext-v14: postgres-v14 $(ROOT_PROJECT_DIR)/target/$(BUILD_TYPE)/libshmemp
 	$(MAKE) PG_CONFIG=$(POSTGRES_INSTALL_DIR)/v14/bin/pg_config CFLAGS='$(PG_CFLAGS) $(COPT)' \
 		-f $(ROOT_PROJECT_DIR)/pgxn/neon_test_utils/Makefile install)
 
-neon-pg-ext-v15: postgres-v15 $(ROOT_PROJECT_DIR)/target/$(BUILD_TYPE)/libshmempipe.a
+neon-pg-ext-v15: postgres-v15 shmempipe
 	+@echo "Compiling neon v15"
 	mkdir -p $(POSTGRES_INSTALL_DIR)/build/neon-v15
 	(cd $(POSTGRES_INSTALL_DIR)/build/neon-v15 && \
@@ -182,7 +185,7 @@ neon-pg-ext-v15: postgres-v15 $(ROOT_PROJECT_DIR)/target/$(BUILD_TYPE)/libshmemp
 	+@echo "Compiling neon_walredo v15"
 	mkdir -p $(POSTGRES_INSTALL_DIR)/build/neon-walredo-v15
 	(cd $(POSTGRES_INSTALL_DIR)/build/neon-walredo-v15 && \
-	$(MAKE) PG_CONFIG=$(POSTGRES_INSTALL_DIR)/v15/bin/pg_config CFLAGS='$(PG_CFLAGS) $(COPT) $(WALREDO_EXTRA_CFLAGS)' \
+	$(MAKE) PG_CONFIG=$(POSTGRES_INSTALL_DIR)/v15/bin/pg_config CFLAGS='$(PG_CFLAGS) $(COPT) $(WALREDO_EXTRA_CFLAGS)' LDFLAGS='$(LD_FLAGS) $(WALREDO_EXTRA_LDFLAGS)' \
 		-f $(ROOT_PROJECT_DIR)/pgxn/neon_walredo/Makefile install)
 	+@echo "Compiling neon_test_utils" v15
 	mkdir -p $(POSTGRES_INSTALL_DIR)/build/neon-test-utils-v15
