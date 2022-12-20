@@ -2181,6 +2181,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "nix"
+version = "0.26.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46a58d1d356c6597d08cde02c2f09d785b09e28711837b1ed667dc652c08a694"
+dependencies = [
+ "bitflags",
+ "cfg-if",
+ "libc",
+ "memoffset 0.7.1",
+ "pin-utils",
+ "static_assertions",
+]
+
+[[package]]
 name = "nom"
 version = "7.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3139,6 +3153,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ringbuf"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89e68dd9c1d8f7bb0c664e1556b1521809bc6fa62d92bb3b813adf8611caa0eb"
+dependencies = [
+ "crossbeam-utils",
+]
+
+[[package]]
 name = "routerify"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3602,6 +3625,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43b2853a4d09f215c24cc5489c992ce46052d359b5109343cbafbf26bc62f8a3"
 
 [[package]]
+name = "shmempipe"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "libc",
+ "nix 0.26.1",
+ "parking_lot 0.12.1",
+ "rand",
+ "ringbuf",
+ "sha2",
+]
+
+[[package]]
 name = "signal-hook"
 version = "0.3.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3694,6 +3730,12 @@ name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
+
+[[package]]
+name = "static_assertions"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "storage_broker"
@@ -4748,6 +4790,7 @@ dependencies = [
  "bytes",
  "clap 4.0.29",
  "crossbeam-utils",
+ "digest",
  "either",
  "fail",
  "futures-channel",
