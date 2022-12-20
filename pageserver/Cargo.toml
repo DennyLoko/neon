@@ -68,6 +68,7 @@ remote_storage = { path = "../libs/remote_storage" }
 storage_broker = { version = "0.1", path = "../storage_broker" }
 tenant_size_model = { path = "../libs/tenant_size_model" }
 utils = { path = "../libs/utils" }
+shmempipe = { path = "../libs/shmempipe" }
 workspace_hack = { version = "0.1", path = "../workspace_hack" }
 
 [dev-dependencies]
