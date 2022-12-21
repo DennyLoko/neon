@@ -303,8 +303,12 @@ impl ModelInputs {
                 Command::EndOfBranch => {
                     storage.insert_point(&Some(*timeline_id), "".into(), now, None);
                 }
+                // FIXME
+                // This branch command fails if it cannot find a parent
+                // But the updates vec is not sorted in any particular order and doesn't
+                // guarantee that we won't try to insert child before parent.
                 Command::BranchFrom(parent) => {
-                    storage.branch(parent, Some(*timeline_id));
+                    storage.branch(parent, Some(*timeline_id))?;
                 }
             }
         }
@@ -372,6 +376,7 @@ async fn calculate_logical_size(
 
     let size_res = timeline
         .spawn_ondemand_logical_size_calculation(lsn)
+        .instrument(info_span!("spawn_ondemand_logical_size_calculation"))
         .await?;
     Ok(TimelineAtLsnSizeResult(timeline, lsn, size_res))
 }

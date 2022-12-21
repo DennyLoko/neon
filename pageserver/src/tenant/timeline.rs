@@ -1559,7 +1559,7 @@ impl Timeline {
         let logical_size = self
             .get_current_logical_size_non_incremental(up_to_lsn, cancel)
             .await?;
-        debug!("calculated logical size: {logical_size}");
+        info!("calculated logical size: {logical_size}");
         timer.stop_and_record();
         Ok(logical_size)
     }

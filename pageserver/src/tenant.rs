@@ -2331,11 +2331,13 @@ impl Tenant {
     pub async fn calculate_synthetic_size(&self) -> anyhow::Result<u64> {
         let inputs = self.gather_size_inputs().await?;
 
-        let size = inputs.calculate()?;
+        let size = inputs
+            .calculate()
+            .unwrap_or_else(|e| panic!("err {}, inputs {:?}", e, inputs));
 
         info!(
             "calculate_synthetic_size for tenant {} size: {}",
-            self.tenant_id, size
+            self.tenant_id, size,
         );
 
         Ok(size)

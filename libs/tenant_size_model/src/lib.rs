@@ -1,6 +1,8 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 
+use log::info;
+
 /// Pricing model or history size builder.
 ///
 /// Maintains knowledge of the branches and their modifications. Generic over the branch name key
@@ -134,7 +136,7 @@ impl<K: std::hash::Hash + Eq + 'static> Storage<K> {
         size: Option<u64>,
     ) where
         K: std::borrow::Borrow<Q>,
-        Q: std::hash::Hash + Eq,
+        Q: std::hash::Hash + Eq + std::fmt::Debug,
     {
         let lastseg_id = *self.branches.get(branch).unwrap();
         let newseg_id = self.segments.len();
@@ -155,6 +157,10 @@ impl<K: std::hash::Hash + Eq + 'static> Storage<K> {
         lastseg.children_after.push(newseg_id);
 
         self.segments.push(newseg);
+        info!(
+            "insert point for branch {:?} newseg_id {}",
+            branch, newseg_id
+        );
         *self.branches.get_mut(branch).expect("read already") = newseg_id;
     }
 
@@ -214,20 +220,29 @@ impl<K: std::hash::Hash + Eq + 'static> Storage<K> {
     }
 
     /// Panics if the parent branch cannot be found.
-    pub fn branch<Q: ?Sized>(&mut self, parent: &Q, name: K)
+    pub fn branch<Q: ?Sized>(&mut self, parent: &Q, name: K) -> anyhow::Result<()>
     where
-        K: std::borrow::Borrow<Q>,
-        Q: std::hash::Hash + Eq,
+        K: std::borrow::Borrow<Q> + std::fmt::Debug,
+        Q: std::hash::Hash + Eq + std::fmt::Debug,
     {
         // Find the right segment
-        let branchseg_id = *self
-            .branches
-            .get(parent)
-            .expect("should had found the parent by key");
+        let branchseg_id = self.branches.get(parent);
+
+        let branchseg_id = match branchseg_id {
+            None => {
+                anyhow::bail!(format!(
+                    "should had found the parent {:?} by key. in branches {:?}",
+                    parent, self.branches
+                ))
+            }
+            Some(b) => *b,
+        };
+
         let _branchseg = &mut self.segments[branchseg_id];
 
         // Create branch name for it
         self.branches.insert(name, branchseg_id);
+        Ok(())
     }
 
     pub fn calculate(&mut self, retention_period: u64) -> SegmentSize {
