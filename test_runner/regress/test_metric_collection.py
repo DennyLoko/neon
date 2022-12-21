@@ -54,7 +54,6 @@ def metrics_handler(request: Request) -> Response:
     return Response(status=200)
 
 
-
 # just a debug handler that prints the metrics and returns OK
 # if the request is not empty
 def metrics_debug(request: Request) -> Response:
@@ -85,8 +84,6 @@ def test_metric_collection(
     neon_env_builder.pageserver_config_override = (
         f"""
     metric_collection_endpoint="{metric_collection_endpoint}"
-    metric_collection_interval="60s"
-    tenant_config={{gc_period='0s', pitr_interval='0sec', gc_horizon={gc_horizon}}}
     """
         + "tenant_config={pitr_interval = '0 sec'}"
     )

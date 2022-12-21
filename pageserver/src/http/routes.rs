@@ -458,8 +458,6 @@ async fn tenant_size_handler(request: Request<Body>) -> Result<Response<Body>, A
 
     let size = inputs.calculate().map_err(ApiError::InternalServerError)?;
 
-    tenant.set_cached_synthetic_size(size);
-
     /// Private response type with the additional "unstable" `inputs` field.
     ///
     /// The type is described with `id` and `size` in the openapi_spec file, but the `inputs` is

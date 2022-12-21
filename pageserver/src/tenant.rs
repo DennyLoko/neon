@@ -39,7 +39,6 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::process::Command;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::MutexGuard;
 use std::sync::{Mutex, RwLock};
@@ -139,7 +138,6 @@ pub struct Tenant {
 
     /// Cached logical sizes updated updated on each [`Tenant::gather_size_inputs`].
     cached_logical_sizes: tokio::sync::Mutex<HashMap<(TimelineId, Lsn), u64>>,
-    cached_synthetic_tenant_size: Arc<AtomicU64>,
 }
 
 /// A timeline with some of its files on disk, being initialized.
@@ -1692,7 +1690,6 @@ impl Tenant {
             remote_storage,
             state,
             cached_logical_sizes: tokio::sync::Mutex::new(HashMap::new()),
-            cached_synthetic_tenant_size: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -2341,15 +2338,7 @@ impl Tenant {
             self.tenant_id, size
         );
 
-        self.cached_synthetic_tenant_size
-            .store(size, Ordering::Relaxed);
-
         Ok(size)
-    }
-
-    pub fn set_cached_synthetic_size(&self, new_size: u64) {
-        self.cached_synthetic_tenant_size
-            .store(new_size, Ordering::Relaxed);
     }
 }
 
