@@ -34,78 +34,78 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  bench:
-    env:
-      TEST_PG_BENCH_DURATIONS_MATRIX: "300"
-      TEST_PG_BENCH_SCALES_MATRIX: "10,100"
-      POSTGRES_DISTRIB_DIR: /tmp/neon/pg_install
-      DEFAULT_PG_VERSION: 14
-      TEST_OUTPUT: /tmp/test_output
-      BUILD_TYPE: remote
-      SAVE_PERF_REPORT: ${{ github.event.inputs.save_perf_report || ( github.ref == 'refs/heads/main' ) }}
-      PLATFORM: "neon-staging"
+  # bench:
+  #   env:
+  #     TEST_PG_BENCH_DURATIONS_MATRIX: "300"
+  #     TEST_PG_BENCH_SCALES_MATRIX: "10,100"
+  #     POSTGRES_DISTRIB_DIR: /tmp/neon/pg_install
+  #     DEFAULT_PG_VERSION: 14
+  #     TEST_OUTPUT: /tmp/test_output
+  #     BUILD_TYPE: remote
+  #     SAVE_PERF_REPORT: ${{ github.event.inputs.save_perf_report || ( github.ref == 'refs/heads/main' ) }}
+  #     PLATFORM: "neon-staging"
 
-    runs-on: [ self-hosted, us-east-2, x64 ]
-    container:
-      image: 369495373322.dkr.ecr.eu-central-1.amazonaws.com/rust:pinned
-      options: --init
+  #   runs-on: [ self-hosted, us-east-2, x64 ]
+  #   container:
+  #     image: 369495373322.dkr.ecr.eu-central-1.amazonaws.com/rust:pinned
+  #     options: --init
 
-    steps:
-    - uses: actions/checkout@v3
+  #   steps:
+  #   - uses: actions/checkout@v3
 
-    - name: Download Neon artifact
-      uses: ./.github/actions/download
-      with:
-        name: neon-${{ runner.os }}-release-artifact
-        path: /tmp/neon/
-        prefix: latest
+  #   - name: Download Neon artifact
+  #     uses: ./.github/actions/download
+  #     with:
+  #       name: neon-${{ runner.os }}-release-artifact
+  #       path: /tmp/neon/
+  #       prefix: latest
 
-    - name: Create Neon Project
-      id: create-neon-project
-      uses: ./.github/actions/neon-project-create
-      with:
-        region_id: ${{ github.event.inputs.region_id || 'aws-us-east-2' }}
-        postgres_version: ${{ env.DEFAULT_PG_VERSION }}
-        api_key: ${{ secrets.NEON_STAGING_API_KEY }}
+  #   - name: Create Neon Project
+  #     id: create-neon-project
+  #     uses: ./.github/actions/neon-project-create
+  #     with:
+  #       region_id: ${{ github.event.inputs.region_id || 'aws-us-east-2' }}
+  #       postgres_version: ${{ env.DEFAULT_PG_VERSION }}
+  #       api_key: ${{ secrets.NEON_STAGING_API_KEY }}
 
-    - name: Run benchmark
-      uses: ./.github/actions/run-python-test-set
-      with:
-        build_type: ${{ env.BUILD_TYPE }}
-        test_selection: performance
-        run_in_parallel: false
-        save_perf_report: ${{ env.SAVE_PERF_REPORT }}
-        # Set --sparse-ordering option of pytest-order plugin
-        # to ensure tests are running in order of appears in the file.
-        # It's important for test_perf_pgbench.py::test_pgbench_remote_* tests
-        extra_params: -m remote_cluster --sparse-ordering --timeout 5400 --ignore test_runner/performance/test_perf_olap.py
-      env:
-        BENCHMARK_CONNSTR: ${{ steps.create-neon-project.outputs.dsn }}
-        VIP_VAP_ACCESS_TOKEN: "${{ secrets.VIP_VAP_ACCESS_TOKEN }}"
-        PERF_TEST_RESULT_CONNSTR: "${{ secrets.PERF_TEST_RESULT_CONNSTR }}"
+  #   - name: Run benchmark
+  #     uses: ./.github/actions/run-python-test-set
+  #     with:
+  #       build_type: ${{ env.BUILD_TYPE }}
+  #       test_selection: performance
+  #       run_in_parallel: false
+  #       save_perf_report: ${{ env.SAVE_PERF_REPORT }}
+  #       # Set --sparse-ordering option of pytest-order plugin
+  #       # to ensure tests are running in order of appears in the file.
+  #       # It's important for test_perf_pgbench.py::test_pgbench_remote_* tests
+  #       extra_params: -m remote_cluster --sparse-ordering --timeout 5400 --ignore test_runner/performance/test_perf_olap.py
+  #     env:
+  #       BENCHMARK_CONNSTR: ${{ steps.create-neon-project.outputs.dsn }}
+  #       VIP_VAP_ACCESS_TOKEN: "${{ secrets.VIP_VAP_ACCESS_TOKEN }}"
+  #       PERF_TEST_RESULT_CONNSTR: "${{ secrets.PERF_TEST_RESULT_CONNSTR }}"
 
-    - name: Delete Neon Project
-      if: ${{ always() }}
-      uses: ./.github/actions/neon-project-delete
-      with:
-        project_id: ${{ steps.create-neon-project.outputs.project_id }}
-        api_key: ${{ secrets.NEON_STAGING_API_KEY }}
+  #   - name: Delete Neon Project
+  #     if: ${{ always() }}
+  #     uses: ./.github/actions/neon-project-delete
+  #     with:
+  #       project_id: ${{ steps.create-neon-project.outputs.project_id }}
+  #       api_key: ${{ secrets.NEON_STAGING_API_KEY }}
 
-    - name: Create Allure report
-      if: success() || failure()
-      uses: ./.github/actions/allure-report
-      with:
-        action: generate
-        build_type: ${{ env.BUILD_TYPE }}
+  #   - name: Create Allure report
+  #     if: success() || failure()
+  #     uses: ./.github/actions/allure-report
+  #     with:
+  #       action: generate
+  #       build_type: ${{ env.BUILD_TYPE }}
 
-    - name: Post to a Slack channel
-      if: ${{ github.event.schedule && failure() }}
-      uses: slackapi/slack-github-action@v1
-      with:
-        channel-id: "C033QLM5P7D" # dev-staging-stream
-        slack-message: "Periodic perf testing: ${{ job.status }}\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-      env:
-        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+  #   - name: Post to a Slack channel
+  #     if: ${{ github.event.schedule && failure() }}
+  #     uses: slackapi/slack-github-action@v1
+  #     with:
+  #       channel-id: "C033QLM5P7D" # dev-staging-stream
+  #       slack-message: "Periodic perf testing: ${{ job.status }}\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+  #     env:
+  #       SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 
   pgbench-compare:
     strategy:
@@ -116,16 +116,9 @@ jobs:
         # neon-captest-prefetch: Same, with prefetching enabled (new project)
         # rds-aurora: Aurora Postgres Serverless v2 with autoscaling from 0.5 to 2 ACUs
         # rds-postgres: RDS Postgres db.m5.large instance (2 vCPU, 8 GiB) with gp3 EBS storage
-        platform: [ neon-captest-reuse, neon-captest-prefetch, rds-postgres ]
+        platform: [ neon-captest-reuse ]
         db_size: [ 10gb ]
         runner: [ us-east-2 ]
-        include:
-          - platform: neon-captest-prefetch
-            db_size: 50gb
-            runner: us-east-2
-          - platform: rds-aurora
-            db_size: 50gb
-            runner: us-east-2
 
     env:
       TEST_PG_BENCH_DURATIONS_MATRIX: "60m"
@@ -275,8 +268,6 @@ jobs:
     #
     # *_CLICKBENCH_CONNSTR: Genuine ClickBench DB with ~100M rows
     # *_CLICKBENCH_10M_CONNSTR: DB with the first 10M rows of ClickBench DB
-    if: success() || failure()
-    needs: [ pgbench-compare ]
 
     strategy:
       fail-fast: false
@@ -284,7 +275,7 @@ jobs:
         # neon-captest-prefetch: We have pre-created projects with prefetch enabled
         # rds-aurora: Aurora Postgres Serverless v2 with autoscaling from 0.5 to 2 ACUs
         # rds-postgres: RDS Postgres db.m5.large instance (2 vCPU, 8 GiB) with gp3 EBS storage
-        platform: [ neon-captest-prefetch, rds-postgres, rds-aurora ]
+        platform: [ neon-captest-prefetch ]
 
     env:
       POSTGRES_DISTRIB_DIR: /tmp/neon/pg_install
@@ -386,8 +377,6 @@ jobs:
     # We might change it after https://github.com/neondatabase/neon/issues/2900.
     #
     # *_TPCH_S10_CONNSTR: DB generated with scale factor 10 (~10 GB)
-    if: success() || failure()
-    needs: [ clickbench-compare ]
 
     strategy:
       fail-fast: false
@@ -395,7 +384,7 @@ jobs:
         # neon-captest-prefetch: We have pre-created projects with prefetch enabled
         # rds-aurora: Aurora Postgres Serverless v2 with autoscaling from 0.5 to 2 ACUs
         # rds-postgres: RDS Postgres db.m5.large instance (2 vCPU, 8 GiB) with gp3 EBS storage
-        platform: [ neon-captest-prefetch, rds-postgres, rds-aurora ]
+        platform: [ neon-captest-prefetch ]
 
     env:
       POSTGRES_DISTRIB_DIR: /tmp/neon/pg_install
