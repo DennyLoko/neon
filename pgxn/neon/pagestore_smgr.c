@@ -272,7 +272,8 @@ static void prefetch_cleanup_trailing_unused(void);
 static inline void prefetch_set_unused(uint64 ring_index);
 
 static XLogRecPtr neon_get_page_request_lsn(bool *latest, RelFileNode rnode,
-											ForkNumber forknum, BlockNumber blkno);
+											ForkNumber forknum, BlockNumber blkno,
+											XLogRecPtr *effective);
 
 static bool
 compact_prefetch_buffers(void)
@@ -662,11 +663,13 @@ prefetch_do_request(PrefetchRequest *slot, bool *force_latest, XLogRecPtr *force
 	}
 	else
 	{
+		XLogRecPtr effective_request_lsn;
 		XLogRecPtr lsn = neon_get_page_request_lsn(
 			&request.req.latest,
 			slot->buftag.rnode,
 			slot->buftag.forkNum,
-			slot->buftag.blockNum
+			slot->buftag.blockNum,
+			&effective_request_lsn
 		);
 		/*
 		 * Note: effective_request_lsn is potentially higher than the requested
@@ -687,8 +690,8 @@ prefetch_do_request(PrefetchRequest *slot, bool *force_latest, XLogRecPtr *force
 		 * XLogCtl->Insert.RedoRecPtr, but that's expensive to access.
 		 */
 		request.req.lsn = lsn;
-		prefetch_lsn = Max(prefetch_lsn, lsn);
-		slot->effective_request_lsn = prefetch_lsn;
+		Assert(effective_request_lsn >= lsn);
+		slot->effective_request_lsn = effective_request_lsn;
 	}
 
 	Assert(slot->response == NULL);
@@ -1386,14 +1389,17 @@ nm_adjust_lsn(XLogRecPtr lsn)
  * Return LSN for requesting pages and number of blocks from page server
  */
 static XLogRecPtr
-neon_get_page_request_lsn(bool *latest, RelFileNode rnode, ForkNumber forknum, BlockNumber blkno)
+neon_get_page_request_lsn(bool *latest, RelFileNode rnode, ForkNumber forknum,
+						  BlockNumber blkno, XLogRecPtr *effective)
 {
 	XLogRecPtr	lsn;
+	XLogRecPtr	local_effective;
 
 	if (RecoveryInProgress())
 	{
 		*latest = false;
 		lsn = GetXLogReplayRecPtr(NULL);
+		local_effective = lsn;
 		elog(DEBUG1, "neon_get_page_request_lsn GetXLogReplayRecPtr %X/%X request lsn 0 ",
 			 (uint32) ((lsn) >> 32), (uint32) (lsn));
 	}
@@ -1401,6 +1407,7 @@ neon_get_page_request_lsn(bool *latest, RelFileNode rnode, ForkNumber forknum, B
 	{
 		*latest = true;
 		lsn = InvalidXLogRecPtr;
+		local_effective = lsn;
 		elog(DEBUG1, "am walsender neon_get_page_request_lsn lsn 0 ");
 	}
 	else
@@ -1413,12 +1420,13 @@ neon_get_page_request_lsn(bool *latest, RelFileNode rnode, ForkNumber forknum, B
 		 * so our request cannot concern those.
 		 */
 		*latest = true;
-		lsn = GetLastWrittenLsnForBuffer(rnode, forknum, blkno);
+		lsn = GetLastWrittenLsnForBuffer(rnode, forknum, blkno, &local_effective);
 		Assert(lsn != InvalidXLogRecPtr);
 		elog(DEBUG1, "neon_get_page_request_lsn GetLastWrittenLSN lsn %X/%X ",
 			 (uint32) ((lsn) >> 32), (uint32) (lsn));
 
 		lsn = nm_adjust_lsn(lsn);
+		local_effective = nm_adjust_lsn(local_effective);
 
 		/*
 		 * Is it possible that the last-written LSN is ahead of last flush
@@ -1441,6 +1449,9 @@ neon_get_page_request_lsn(bool *latest, RelFileNode rnode, ForkNumber forknum, B
 			XLogFlush(lsn);
 		}
 	}
+	
+	if (effective != NULL)
+		*effective = local_effective;
 
 	return lsn;
 }
@@ -1473,7 +1484,7 @@ neon_get_relfilenode_request_lsn(bool *latest, RelFileNode rnode, ForkNumber for
 		 * so our request cannot concern those.
 		 */
 		*latest = true;
-		lsn = GetLastWrittenLsnForRelFileNode(rnode, forknum);
+		lsn = GetLastWrittenLsnForRelFileNode(rnode, forknum, NULL);
 		Assert(lsn != InvalidXLogRecPtr);
 		elog(DEBUG1, "neon_get_page_request_lsn GetLastWrittenLSN lsn %X/%X ",
 			 (uint32) ((lsn) >> 32), (uint32) (lsn));
@@ -1533,7 +1544,7 @@ neon_get_database_request_lsn(bool *latest, Oid datoid)
 		 * so our request cannot concern those.
 		 */
 		*latest = true;
-		lsn = GetLastWrittenLsnForDatabase(datoid);
+		lsn = GetLastWrittenLsnForDatabase(datoid, NULL);
 		Assert(lsn != InvalidXLogRecPtr);
 		elog(DEBUG1, "neon_get_page_request_lsn GetLastWrittenLSN lsn %X/%X ",
 			 (uint32) ((lsn) >> 32), (uint32) (lsn));
@@ -2094,7 +2105,7 @@ neon_read(SMgrRelation reln, ForkNumber forkNum, BlockNumber blkno,
 			elog(ERROR, "unknown relpersistence '%c'", reln->smgr_relpersistence);
 	}
 
-	request_lsn = neon_get_page_request_lsn(&latest, reln->smgr_rnode.node, forkNum, blkno);
+	request_lsn = neon_get_page_request_lsn(&latest, reln->smgr_rnode.node, forkNum, blkno, NULL);
 	neon_read_at_lsn(reln->smgr_rnode.node, forkNum, blkno, request_lsn, latest, buffer);
 
 #ifdef DEBUG_COMPARE_LOCAL

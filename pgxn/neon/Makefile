@@ -9,7 +9,7 @@ OBJS = \
 	pagestore_smgr.o \
 	relsize_cache.o \
 	neon.o \
-	neon_llc.o \
+	neon_lwlc.o \
 	walproposer.o \
 	walproposer_utils.o
 
