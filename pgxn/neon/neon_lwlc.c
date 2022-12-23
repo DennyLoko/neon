@@ -64,6 +64,9 @@ static void lwlc_setup(void);
 static void lwlc_register_gucs(void);
 static void lwlc_request_shmem(void);
 static void lwlc_setup_shmem(void);
+static int lwlc_pheap_comparefunc(const pairingheap_node *a,
+								  const pairingheap_node *b,
+								  void *arg);
 
 static XLogRecPtr lwlc_lookup_last_lsn(RelFileNode node, ForkNumber fork, BlockNumber blkno, XLogRecPtr *effective);
 static bool lwlc_should_insert(XLogRecPtr lsn);
@@ -120,6 +123,18 @@ lwlc_setup_shmem(void)
 {
 	static HASHCTL info;
 	LwLsnCache = ShmemAlloc(sizeof(LwLsnCacheData));
+	MemSet(LwLsnCache, 0, sizeof(LwLsnCacheData));
+
+	/*
+	 * XXX: Manual modification of these fields, because no shared allocation
+	 * method exists for pheap.
+	 */
+	LwLsnCache->pheap.ph_compare = &lwlc_pheap_comparefunc;
+	LwLsnCache->pheap.ph_arg = NULL;
+	LwLsnCache->pheap.ph_root = NULL;
+	LwLsnCache->n_cached_entries = 0;
+	LwLsnCache->highWaterMark = GetRedoStartLsn();
+	LwLsnCache->lowWaterMark = GetRedoStartLsn();
 
 	info.keysize = sizeof(LwLsnCacheEntryKeyData);
 	info.entrysize = sizeof(LwLsnCacheEntryData);
@@ -130,6 +145,22 @@ lwlc_setup_shmem(void)
 									HASH_ELEM | HASH_BLOBS);
 	LwLsnCacheLockTranche = GetNamedLWLockTranche("neon/LwLsnCache");
 }
+
+int lwlc_pheap_comparefunc(const pairingheap_node *a, const pairingheap_node *b, void *arg) {
+	const LwLsnCacheEntryData *a_entry;
+	const LwLsnCacheEntryData *b_entry;
+	
+	a_entry = pairingheap_const_container(LwLsnCacheEntryData, pheapnode, a);
+	b_entry = pairingheap_const_container(LwLsnCacheEntryData, pheapnode, b);
+	
+	if (a_entry->lsn > b_entry->lsn)
+		return -1;
+	else if (a_entry->lsn < b_entry->lsn)
+		return 1;
+	else
+		return 0;
+}
+
 
 static XLogRecPtr
 lwlc_lookup_last_lsn(RelFileNode node, ForkNumber fork, BlockNumber blkno,
@@ -179,6 +210,7 @@ lwlc_insert_last_lsn(XLogRecPtr lsn, RelFileNode node, ForkNumber fork, BlockNum
 {
 	uint32		hash;
 	bool		found;
+	XLogRecPtr	highmark;
 	LwLsnCacheEntryKeyData key;
 	LwLsnCacheEntryData *entry;
 
@@ -187,6 +219,9 @@ lwlc_insert_last_lsn(XLogRecPtr lsn, RelFileNode node, ForkNumber fork, BlockNum
 	key.rnode = node;
 	key.forkNum = fork;
 	key.blockNum = blkno;
+
+	/* update the max known valid Lsn */
+	highmark = Max(lsn, ProcLastRecPtr);
 
 	hash = get_hash_value(LwLsnCacheTable, &key);
 
@@ -199,8 +234,8 @@ lwlc_insert_last_lsn(XLogRecPtr lsn, RelFileNode node, ForkNumber fork, BlockNum
 		return;
 	}
 
-	if(LwLsnCache->highWaterMark < lsn)
-		LwLsnCache->highWaterMark = lsn;
+	if(LwLsnCache->highWaterMark < highmark)
+		LwLsnCache->highWaterMark = highmark;
 
 	entry = (LwLsnCacheEntryData *)
 		hash_search_with_hash_value(LwLsnCacheTable, &key, hash,
@@ -234,6 +269,9 @@ lwlc_insert_last_lsn(XLogRecPtr lsn, RelFileNode node, ForkNumber fork, BlockNum
 			key = entry->key;
 			lsn = entry->lsn;
 
+			if (LwLsnCache->lowWaterMark > entry->lsn)
+				elog(FATAL, "LwLsn cache corruption - evicted lsn is smaller "
+							"than highest eviction");
 			/*
 			 * lowWaterMark is the lowest LSN that *could* still be in the
 			 * cache. So, if we evict LSN > lowWatermark, that becomes the
@@ -262,9 +300,9 @@ GetLastWrittenLsnForBuffer(RelFileNode node,
 						   BlockNumber blkno,
 						   XLogRecPtr *effective)
 {
-	Assert(OidIsValid(node.dbNode));
-	Assert(OidIsValid(node.relNode));
 	Assert(OidIsValid(node.spcNode));
+	/* node.dbNode may be InvalidOid, because shared catalogs have dbNode = 0 */
+	Assert(OidIsValid(node.relNode));
 	Assert(fork != InvalidForkNumber);
 	Assert(BlockNumberIsValid(blkno));
 
@@ -274,15 +312,14 @@ GetLastWrittenLsnForBuffer(RelFileNode node,
 void
 SetLastWrittenLsnForBuffer(XLogRecPtr lsn, RelFileNode node, ForkNumber fork, BlockNumber blkno)
 {
-	Assert(OidIsValid(node.dbNode));
-	Assert(OidIsValid(node.relNode));
 	Assert(OidIsValid(node.spcNode));
+	/* node.dbNode may be InvalidOid, because shared catalogs have dbNode = 0 */
+	Assert(OidIsValid(node.relNode));
 	Assert(fork != InvalidForkNumber);
 	Assert(BlockNumberIsValid(blkno));
 
 	if (lwlc_should_insert(lsn))
 		lwlc_insert_last_lsn(lsn, node, fork, blkno);
-
 }
 
 XLogRecPtr
@@ -290,9 +327,9 @@ GetLastWrittenLsnForRelFileNode(RelFileNode node,
 								ForkNumber fork,
 								XLogRecPtr *effective)
 {
-	Assert(OidIsValid(node.dbNode));
-	Assert(OidIsValid(node.relNode));
 	Assert(OidIsValid(node.spcNode));
+	/* node.dbNode may be InvalidOid, because shared catalogs have dbNode = 0 */
+	Assert(OidIsValid(node.relNode));
 	Assert(fork != InvalidForkNumber);
 
 	lwlc_lookup_last_lsn(node, fork, InvalidBlockNumber, NULL);
@@ -301,9 +338,9 @@ GetLastWrittenLsnForRelFileNode(RelFileNode node,
 void
 SetLastWrittenLsnForRelFileNode(XLogRecPtr lsn, RelFileNode node, ForkNumber fork)
 {
-	Assert(OidIsValid(node.dbNode));
-	Assert(OidIsValid(node.relNode));
 	Assert(OidIsValid(node.spcNode));
+	/* node.dbNode may be InvalidOid, because shared catalogs have dbNode = 0 */
+	Assert(OidIsValid(node.relNode));
 	Assert(fork != InvalidForkNumber);
 
 	if (lwlc_should_insert(lsn))
@@ -323,6 +360,10 @@ GetLastWrittenLsnForDatabase(Oid datoid,
 {
 	RelFileNode node = {0};
 
+	/*
+	 * XXX: Although RelFileNode.dbNode may be 0, I don't think we can reach
+	 * this code for shared relations?
+	 */
 	Assert(OidIsValid(datoid));
 
 	node.dbNode = datoid;
@@ -334,6 +375,12 @@ void
 SetLastWrittenLsnForDatabase(XLogRecPtr lsn, Oid datoid)
 {
 	RelFileNode node = {0};
+
+	/*
+	 * XXX: Although RelFileNode.dbNode may be 0, I don't think we can reach
+	 * this code for shared relations?
+	 */
+	Assert(OidIsValid(datoid));
 
 	node.dbNode = datoid;
 
