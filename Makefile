@@ -3,6 +3,8 @@ ROOT_PROJECT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 # Where to install Postgres, default is ./pg_install, maybe useful for package managers
 POSTGRES_INSTALL_DIR ?= $(ROOT_PROJECT_DIR)/pg_install/
 
+LIBSHMEMPIPE=$(ROOT_PROJECT_DIR)/target/$(BUILD_TYPE)/libshmempipe.a
+
 #
 # We differentiate between release / debug build types using the BUILD_TYPE
 # environment variable.
@@ -19,6 +21,7 @@ else ifeq ($(BUILD_TYPE),debug)
 else
 	$(error Bad build type '$(BUILD_TYPE)', see Makefile for options)
 endif
+
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Linux)
@@ -155,11 +158,13 @@ postgres-v15-clean:
 	$(MAKE) -C $(POSTGRES_INSTALL_DIR)/build/v15/contrib/pageinspect clean
 	$(MAKE) -C $(POSTGRES_INSTALL_DIR)/build/v15/src/interfaces/libpq clean
 
-.PHONY: shmempipe
-shmempipe:
+# in addition to rebuilding the shmempipe, we must always clean out the dynamic library shmempipe is linked to (statically)
+# there doesn't seem to be a pgxs way to have the MODULE_big depend on external object files.
+$(LIBSHMEMPIPE): $(ROOT_PROJECT_DIR)/Cargo.lock $(ROOT_PROJECT_DIR)/libs/shmempipe/Cargo.toml $(wildcard $(ROOT_PROJECT_DIR)/libs/shmempipe/src/*.rs)
+	rm -f $(POSTGRES_INSTALL_DIR)/build/neon-walredo-*/neon_walredo.so
 	$(CARGO_CMD_PREFIX) cargo build -p shmempipe $(CARGO_BUILD_FLAGS)
 
-neon-pg-ext-v14: postgres-v14 shmempipe
+neon-pg-ext-v14: postgres-v14 $(LIBSHMEMPIPE)
 	+@echo "Compiling neon v14"
 	mkdir -p $(POSTGRES_INSTALL_DIR)/build/neon-v14
 	(cd $(POSTGRES_INSTALL_DIR)/build/neon-v14 && \
@@ -176,7 +181,7 @@ neon-pg-ext-v14: postgres-v14 shmempipe
 	$(MAKE) PG_CONFIG=$(POSTGRES_INSTALL_DIR)/v14/bin/pg_config CFLAGS='$(PG_CFLAGS) $(COPT)' \
 		-f $(ROOT_PROJECT_DIR)/pgxn/neon_test_utils/Makefile install)
 
-neon-pg-ext-v15: postgres-v15 shmempipe
+neon-pg-ext-v15: postgres-v15 $(LIBSHMEMPIPE)
 	+@echo "Compiling neon v15"
 	mkdir -p $(POSTGRES_INSTALL_DIR)/build/neon-v15
 	(cd $(POSTGRES_INSTALL_DIR)/build/neon-v15 && \
