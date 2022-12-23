@@ -201,6 +201,7 @@ neon-pg-ext-v15: postgres-v15 $(LIBSHMEMPIPE)
 .PHONY: neon-pg-ext-clean
 	$(MAKE) -C $(ROOT_PROJECT_DIR)/pgxn/neon clean
 	$(MAKE) -C $(ROOT_PROJECT_DIR)/pgxn/neon_test_utils clean
+	$(MAKE) -C $(ROOT_PROJECT_DIR)/pgxn/neon_walredo clean
 
 neon-pg-ext: neon-pg-ext-v14 neon-pg-ext-v15
 postgres-headers: postgres-v14-headers postgres-v15-headers
