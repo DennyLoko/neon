@@ -105,27 +105,27 @@ postgres-v15-configure: $(POSTGRES_INSTALL_DIR)/build/v15/config.status
 .PHONY: postgres-v14-headers
 postgres-v14-headers: postgres-v14-configure
 	+@echo "Installing PostgreSQL v14 headers"
-	$(MAKE) -C $(POSTGRES_INSTALL_DIR)/build/v14/src/include MAKELEVEL=0 install
+	$(MAKE) -s -C $(POSTGRES_INSTALL_DIR)/build/v14/src/include MAKELEVEL=0 install
 
 .PHONY: postgres-v15-headers
 postgres-v15-headers: postgres-v15-configure
 	+@echo "Installing PostgreSQL v15 headers"
-	$(MAKE) -C $(POSTGRES_INSTALL_DIR)/build/v15/src/include MAKELEVEL=0 install
+	$(MAKE) -s -C $(POSTGRES_INSTALL_DIR)/build/v15/src/include MAKELEVEL=0 install
 
 # Compile and install PostgreSQL
 .PHONY: postgres-v14
 postgres-v14: postgres-v14-configure \
 		  postgres-v14-headers # to prevent `make install` conflicts with neon's `postgres-headers`
 	+@echo "Compiling PostgreSQL v14"
-	$(MAKE) -C $(POSTGRES_INSTALL_DIR)/build/v14 MAKELEVEL=0 install
+	$(MAKE) -s -C $(POSTGRES_INSTALL_DIR)/build/v14 MAKELEVEL=0 install
 	+@echo "Compiling libpq v14"
-	$(MAKE) -C $(POSTGRES_INSTALL_DIR)/build/v14/src/interfaces/libpq install
+	$(MAKE) -s -C $(POSTGRES_INSTALL_DIR)/build/v14/src/interfaces/libpq install
 	+@echo "Compiling pg_prewarm v14"
-	$(MAKE) -C $(POSTGRES_INSTALL_DIR)/build/v14/contrib/pg_prewarm install
+	$(MAKE) -s -C $(POSTGRES_INSTALL_DIR)/build/v14/contrib/pg_prewarm install
 	+@echo "Compiling pg_buffercache v14"
-	$(MAKE) -C $(POSTGRES_INSTALL_DIR)/build/v14/contrib/pg_buffercache install
+	$(MAKE) -s -C $(POSTGRES_INSTALL_DIR)/build/v14/contrib/pg_buffercache install
 	+@echo "Compiling pageinspect v14"
-	$(MAKE) -C $(POSTGRES_INSTALL_DIR)/build/v14/contrib/pageinspect install
+	$(MAKE) -s -C $(POSTGRES_INSTALL_DIR)/build/v14/contrib/pageinspect install
 
 .PHONY: postgres-v15
 postgres-v15: postgres-v15-configure \
