@@ -80,6 +80,9 @@ pub enum BillingMetricKind {
     /// Size of the remote storage (S3) directory.
     /// This is an absolute, per-tenant metric.
     RemoteStorageSize,
+    /// Logical size of the data in the timeline
+    /// This is an absolute, per-timeline metric
+    TimelineLogicalSize,
 }
 
 impl FromStr for BillingMetricKind {
@@ -91,6 +94,7 @@ impl FromStr for BillingMetricKind {
             "synthetic_storage_size" => Ok(Self::SyntheticStorageSize),
             "resident_size" => Ok(Self::ResidentSize),
             "remote_storage_size" => Ok(Self::RemoteStorageSize),
+            "timeline_logical_size" => Ok(Self::TimelineLogicalSize),
             _ => anyhow::bail!("invalid value \"{s}\" for metric type"),
         }
     }
@@ -103,6 +107,7 @@ impl fmt::Display for BillingMetricKind {
             BillingMetricKind::SyntheticStorageSize => "synthetic_storage_size",
             BillingMetricKind::ResidentSize => "resident_size",
             BillingMetricKind::RemoteStorageSize => "remote_storage_size",
+            BillingMetricKind::TimelineLogicalSize => "timeline_logical_size",
         })
     }
 }
@@ -184,6 +189,16 @@ pub async fn collect_metrics_task(
                     metric: BillingMetricKind::WrittenSize,
                 },
                 timeline_written_size,
+            ));
+
+            let timeline_logical_size = timeline.get_current_logical_size()?;
+            current_metrics.push((
+                BillingMetricsKey {
+                    tenant_id,
+                    timeline_id: Some(timeline.timeline_id),
+                    metric: BillingMetricKind::TimelineLogicalSize,
+                },
+                timeline_logical_size,
             ));
 
             let timeline_resident_size = timeline.get_resident_physical_size();
